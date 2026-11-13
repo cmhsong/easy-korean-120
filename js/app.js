@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  var UNITS = [
+  var UNITS_L1 = [
     { n: '낱말과 친해지기', e: '🔤' },
     { n: '문장을 바르게', e: '✏️' },
     { n: '마음을 나타내는 말', e: '💗' },
@@ -16,8 +16,30 @@
     { n: '글을 써요', e: '📝' },
     { n: '말과 책, 그리고 생활', e: '📚' }
   ];
+  /* 2·3수준은 6학년 성취기준에 맞춘 같은 주제를 난이도만 달리해 다룬다 */
+  var UNITS_L23 = [
+    { n: '낱말의 세계', e: '🔤' },
+    { n: '문장의 짜임과 호응', e: '✏️' },
+    { n: '마음을 나누는 대화', e: '💗' },
+    { n: '글의 구조와 요약', e: '🔎' },
+    { n: '이야기 깊이 읽기', e: '📖' },
+    { n: '시와 비유', e: '🌷' },
+    { n: '토의와 토론', e: '🗣️' },
+    { n: '주장하는 글', e: '💡' },
+    { n: '우리말 바르게', e: '🧩' },
+    { n: '매체와 정보', e: '📰' },
+    { n: '목적에 맞게 쓰기', e: '📝' },
+    { n: '문학과 삶, 우리말 문화', e: '📚' }
+  ];
+  var LEVELS = [
+    { n: '1수준', d: '기초 · 쉬운 글' },
+    { n: '2수준', d: '보통 · 4~5학년 수준' },
+    { n: '3수준', d: '심화 · 6학년 수준' }
+  ];
+  /* index.html 이 수준별 자료를 window.LV 에 차례로 담아 둔다 */
+  var LV = window.LV && window.LV.length ? window.LV : [{ L: window.LESSONS || [], M: window.MORE || {} }];
   var PER = 10;
-  var BASE = window.LESSONS || [];
+  var UNITS = UNITS_L1, BASE = [], MORE = {};
   var PRAISE = ['딩동댕! 참 잘했어요.', '맞았어요! 멋져요.', '정답이에요! 최고예요.', '잘했어요! 훌륭해요.'];
   var NUMS = ['①', '②', '③', '④', '⑤'];
 
@@ -26,11 +48,24 @@
     get: function (k, d) { try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
     set: function (k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { } }
   };
-  var S = { fs: 1, zoom: 1, dwell: 0, press: false, guard: true, cursor: false, btn: 1, dark: false, auto: false, snd: true, pfs: 18, touch: 'tap' };
+  var S = { fs: 1, zoom: 1, dwell: 0, press: false, guard: true, cursor: false, btn: 1, dark: false, auto: false, snd: true, pfs: 18, touch: 'tap', level: 1, pic: true };
   var saved = LS.get('jk_set', {});
   for (var k0 in saved) if (k0 in S) S[k0] = saved[k0];
-  var P = LS.get('jk_prog', {});   // 학습 기록 {차시번호: {s:별, t:문제 수}}
-  var E = LS.get('jk_edit', {});   // 편집한 차시 {차시번호: 차시 내용}
+  var P = {};   // 학습 기록 {차시번호: {s:별, t:문제 수}} — 수준마다 따로 저장
+  var E = {};   // 편집한 차시 {차시번호: 차시 내용} — 수준마다 따로 저장
+  function pk() { return 'jk_prog' + (S.level > 1 ? S.level : ''); }
+  function ek() { return 'jk_edit' + (S.level > 1 ? S.level : ''); }
+  function hasLevel(n) { return !!(LV[n - 1] && LV[n - 1].L && LV[n - 1].L.length); }
+  function loadLevel() {
+    if (!hasLevel(S.level)) S.level = 1;
+    BASE = LV[S.level - 1].L; MORE = LV[S.level - 1].M || {};
+    UNITS = S.level === 1 ? UNITS_L1 : UNITS_L23;
+    P = LS.get(pk(), {}); E = LS.get(ek(), {});
+  }
+  try {
+    var qLevel = parseInt(new URLSearchParams(location.search).get('level'), 10);
+    if (qLevel >= 1 && qLevel <= 3) S.level = qLevel;
+  } catch (e) { }
 
   var stage = document.getElementById('stage');
   var modal = document.getElementById('modal');
@@ -38,7 +73,6 @@
   var pad = document.getElementById('pad');
   var view = 'home', L = null, curSpeak = '';
 
-  var MORE = window.MORE || {};   // 차시 번호 → 추가 활동(활동 2, 3)
   /* 예전 형식 {t,g,p,q} 을 {t,g,parts:[{p,q}…]} 로 맞춘다 */
   function norm(d) { return d.parts ? d : { t: d.t, g: d.g, parts: [{ p: d.p, q: d.q }] }; }
   function lesson(i) {
@@ -156,8 +190,15 @@
     view = 'home';
     var total = BASE.length, did = Object.keys(P).filter(function (k) { return BASE[k]; }).length, next = 0;
     while (next < total && P[next]) next++;
-    stage.appendChild(h('h1', { text: '📗 쉬운 국어 학습지' }));
-    stage.appendChild(h('p', { class: 'sub', text: '모두 ' + total + '차시 · 차시마다 활동 3개 · 끝낸 차시 ' + did + '개' }));
+    stage.appendChild(h('h1', { text: '📗 국어 학습지' }));
+    var lv = h('div', { class: 'levels', role: 'group', 'aria-label': '수준 고르기' });
+    LEVELS.forEach(function (x, k) {
+      if (!hasLevel(k + 1)) return;
+      lv.appendChild(btn('lv' + (S.level === k + 1 ? ' on' : ''), [h('span', { class: 'ln', text: x.n }), h('span', { class: 'ld', text: x.d })],
+        function () { if (S.level === k + 1) return; S.level = k + 1; apply(); loadLevel(); render(); }, { 'aria-pressed': String(S.level === k + 1) }));
+    });
+    if (lv.children.length > 1) stage.appendChild(lv);
+    stage.appendChild(h('p', { class: 'sub', text: S.level + '수준 · 모두 ' + total + '차시 · 차시마다 활동 3개 · 끝낸 차시 ' + did + '개' }));
     if (next < total) {
       stage.appendChild(btn('pri wide', '▶ ' + (did ? '이어서 하기' : '시작하기') + ' : ' + (next + 1) + '차시 ' + lesson(next).t,
         function () { go('l/' + (next + 1)); }));
@@ -173,7 +214,7 @@
       ], function () { go('u/' + i); }));
     });
     stage.appendChild(grid);
-    curSpeak = '쉬운 국어 학습지. 공부할 단원을 눌러요.';
+    curSpeak = '국어 학습지. ' + S.level + '수준. 공부할 단원을 눌러요.';
   }
 
   function viewUnit(u) {
@@ -194,6 +235,55 @@
     curSpeak = (u + 1) + '단원. ' + UNITS[u].n + '. 공부할 차시를 눌러요.';
   }
 
+  /* ── 도트 그림: 글에 나온 낱말에 맞는 그림을 골라 보여 준다 ── */
+  var PX = window.PIXART || { pal: {}, art: {} };
+  var UNIT_ART = ['hangul', 'pencil', 'heart', 'idea', 'book', 'music', 'talk', 'megaphone', 'hangul', 'news', 'pencil', 'book'];
+  function pixSvg(key) {
+    var art = PX.art[key], f = art && PX.fine ? PX.fine(key) : null;
+    if (!f) return null;
+    var NS = 'http://www.w3.org/2000/svg', svg = document.createElementNS(NS, 'svg'), n = f.size;
+    svg.setAttribute('viewBox', '0 0 ' + n + ' ' + n); svg.setAttribute('class', 'pixsvg');
+    svg.setAttribute('shape-rendering', 'crispEdges'); svg.setAttribute('role', 'img'); svg.setAttribute('aria-label', art.n + ' 그림');
+    f.rows.forEach(function (row, y) {
+      var x = 0;
+      while (x < n) {
+        var col = row[x], st = x;
+        while (x < n && row[x] === col) x++;
+        if (!col) continue;
+        var r = document.createElementNS(NS, 'rect');
+        r.setAttribute('x', st); r.setAttribute('y', y); r.setAttribute('width', x - st); r.setAttribute('height', 1.06);
+        r.setAttribute('fill', col);
+        svg.appendChild(r);
+      }
+    });
+    return svg;
+  }
+  function rankArt(text) {
+    var out = [];
+    Object.keys(PX.art).forEach(function (key) {
+      var sc = 0;
+      PX.art[key].k.forEach(function (w) { sc += Math.min(3, text.split(w).length - 1); });
+      if (sc > 0) out.push({ key: key, sc: sc });
+    });
+    return out.sort(function (x, y) { return y.sc - x.sc; }).map(function (x) { return x.key; });
+  }
+  /* 활동마다 그림 열쇠 목록(0~2개). pt.img 가 있으면 선생님이 고른 그림을 쓴다 */
+  function pickArt(i, d) {
+    var used = {}, unit = UNIT_ART[Math.floor(i / PER)] || 'book';
+    return d.parts.map(function (pt) {
+      if (pt.img === 'none') return [];
+      if (pt.img && PX.art[pt.img]) return [pt.img];
+      var ranked = rankArt(pt.p), fresh = ranked.filter(function (k) { return !used[k]; });
+      var list = (fresh.length ? fresh : ranked).slice(0, 2);
+      if (!list.length) list = PX.art[unit] ? [unit] : [];
+      list.forEach(function (k) { used[k] = 1; });
+      return list;
+    });
+  }
+  function figure(keys) {
+    return h('div', { class: 'fig' }, keys.map(function (k) { return h('div', { class: 'pix' }, pixSvg(k)); }));
+  }
+
   /* ── 차시 학습 ── */
   function newLesson(i) {
     var d = lesson(i), seq = [], qn = 0;
@@ -201,7 +291,7 @@
       seq.push({ k: k, read: true });
       pt.q.forEach(function (q) { seq.push({ k: k, q: q, no: ++qn }); });
     });
-    L = { i: i, d: d, step: 0, stars: 0, seq: seq, qTotal: qn };
+    L = { i: i, d: d, step: 0, stars: 0, seq: seq, qTotal: qn, art: pickArt(i, d) };
   }
   function advance() { L.step++; viewLesson(); window.scrollTo(0, 0); }
 
@@ -218,7 +308,7 @@
     hush(); cancelDwell(); clear(stage);
     stage.appendChild(h('div', { class: 'crumb' },
       btn('sm', '◀ 차시 목록', function () { go('u/' + u); }),
-      h('span', { class: 'where', text: (u + 1) + '단원 · ' + n + '차시' }),
+      h('span', { class: 'where', text: S.level + '수준 · ' + (u + 1) + '단원 · ' + n + '차시' }),
       btn('sm', '✏️ 편집', function () { go('e/' + n); })));
     stage.appendChild(h('h1', { text: d.t }));
     var dots = h('div', { class: 'dots', 'aria-hidden': 'true' });
@@ -232,6 +322,7 @@
       if (d.parts.length > 1) stage.appendChild(h('div', { class: 'part', text: '활동 ' + (cur.k + 1) + ' / ' + d.parts.length }));
       if (cur.read) {
         if (cur.k === 0 && d.g) stage.appendChild(h('p', { class: 'goal', text: '🎯 ' + d.g }));
+        if (S.pic && L.art[cur.k].length) stage.appendChild(figure(L.art[cur.k]));
         stage.appendChild(h('div', { class: 'passage', text: pt.p }));
         curSpeak = (cur.k === 0 ? d.t + '. ' : '') + pt.p;
         stage.appendChild(h('div', { class: 'row' },
@@ -366,7 +457,7 @@
   function viewFinish(d, total, u) {
     var prev = P[L.i];
     if (!prev || L.stars >= prev.s || prev.t !== total) P[L.i] = { s: L.stars, t: total };
-    LS.set('jk_prog', P);
+    LS.set(pk(), P);
     var stars = '';
     for (var i = 0; i < total; i++) stars += i < L.stars ? '⭐' : '☆';
     var n = L.i + 1;
@@ -432,6 +523,15 @@
           btn('sm', '🗑 활동 삭제', function () {
             if (confirm('활동 ' + (pk + 1) + '의 글과 문제를 모두 지울까요?')) { w.parts.splice(pk, 1); draw(); }
           }, { disabled: w.parts.length <= 1 })));
+        var sel = h('select', { class: 'in' });
+        [['', '자동 (글에 맞춰 고름)'], ['none', '그림 없음']].concat(Object.keys(PX.art).map(function (k) { return [k, PX.art[k].n]; })).forEach(function (o) {
+          var op = h('option', { value: o[0], text: o[1] });
+          if ((pt.img || '') === o[0]) op.selected = true;
+          sel.appendChild(op);
+        });
+        sel.addEventListener('change', function () { if (sel.value) pt.img = sel.value; else delete pt.img; draw(); });
+        var prev = pt.img === 'none' ? [] : (pt.img && PX.art[pt.img] ? [pt.img] : pickArt(i, w)[pk]);
+        sec.appendChild(h('div', { class: 'picrow' }, h('label', { class: 'fld' }, h('span', { text: '도트 그림' }), sel), figure(prev)));
         sec.appendChild(field('읽기 글 (줄을 바꾸면 화면에서도 줄이 바뀝니다)', pt.p, function (v) { pt.p = v; }, true));
         pt.q.forEach(function (q, k) { sec.appendChild(qEditor(pt, q, k)); });
         var addRow = h('div', { class: 'seg' });
@@ -448,7 +548,7 @@
       var row = h('div', { class: 'row' }, btn('pri', '💾 저장', save), btn('', '취소', function () { go('l/' + n); }));
       if (E[i]) row.appendChild(btn('', '↩ 처음 내용으로 되돌리기', function () {
         if (!confirm(n + '차시를 처음 내용으로 되돌릴까요?')) return;
-        delete E[i]; LS.set('jk_edit', E); go('l/' + n);
+        delete E[i]; LS.set(ek(), E); go('l/' + n);
       }));
       box.appendChild(row);
       stage.appendChild(box);
@@ -534,7 +634,7 @@
         });
       });
       if (err) return alert(err);
-      E[i] = w; LS.set('jk_edit', E);
+      E[i] = w; LS.set(ek(), E);
       go('l/' + n);
     }
   }
@@ -564,6 +664,7 @@
       [['tap', '바로 누르기'], ['lift', '손을 뗀 곳 선택'], [0.5, '0.5초 꾹 누르기'], [1, '1초 꾹 누르기']]);
     seg('버튼 크기', '', 'btn', [[1, '보통'], [1.25, '크게'], [1.5, '아주 크게']]);
     seg('화면 색', '', 'dark', [[false, '밝게'], [true, '어둡게 (또렷한 색)']]);
+    seg('도트 그림 보이기', '읽기 글 위에 글과 어울리는 도트 그림을 보여 줍니다.', 'pic', onoff);
     seg('자동으로 읽어 주기', '글과 문제가 나올 때 소리로 읽어 줍니다.', 'auto', onoff);
     seg('효과음', '', 'snd', onoff);
 
@@ -577,22 +678,22 @@
     t.appendChild(btn('', '📥 편집 내용 불러오기', importEdits));
     t.appendChild(btn('', '↩ 편집 모두 되돌리기', function () {
       if (!confirm('편집한 차시 ' + Object.keys(E).length + '개를 모두 처음 내용으로 되돌릴까요?')) return;
-      E = {}; LS.set('jk_edit', E); closeSettings(); render();
+      E = {}; LS.set(ek(), E); closeSettings(); render();
     }));
     t.appendChild(btn('', '🧹 학습 기록 지우기', function () {
       if (!confirm('끝낸 차시 기록을 모두 지울까요?')) return;
-      P = {}; LS.set('jk_prog', P); closeSettings(); render();
+      P = {}; LS.set(pk(), P); closeSettings(); render();
     }));
     sheet.appendChild(t);
-    sheet.appendChild(h('p', { class: 'note', text: '편집한 차시: ' + Object.keys(E).length + '개 · 차시를 고치려면 그 차시에 들어가서 “✏️ 편집”을 누르세요.' }));
+    sheet.appendChild(h('p', { class: 'note', text: S.level + '수준에서 편집한 차시: ' + Object.keys(E).length + '개 · 차시를 고치려면 그 차시에 들어가서 “✏️ 편집”을 누르세요.' }));
     modal.appendChild(sheet);
     modal.hidden = false;
   }
   function closeSettings() { modal.hidden = true; clear(modal); }
 
   function exportEdits() {
-    var blob = new Blob([JSON.stringify({ app: 'easy-korean-120', edits: E }, null, 1)], { type: 'application/json' });
-    var a = h('a', { href: URL.createObjectURL(blob), download: '국어학습지_편집내용.json' });
+    var blob = new Blob([JSON.stringify({ app: 'easy-korean-120', level: S.level, edits: E }, null, 1)], { type: 'application/json' });
+    var a = h('a', { href: URL.createObjectURL(blob), download: '국어학습지_' + S.level + '수준_편집내용.json' });
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(function () { URL.revokeObjectURL(a.href); }, 3000);
   }
@@ -618,8 +719,9 @@
       r.onload = function () {
         try {
           var data = JSON.parse(r.result), ed = data.edits, c = 0;
+          if ((data.level || 1) !== S.level) return alert('이 파일은 ' + (data.level || 1) + '수준의 편집 내용입니다. 처음 화면에서 ' + (data.level || 1) + '수준을 고른 뒤 불러오세요.');
           for (var k in ed) if (BASE[k] && validLesson(ed[k])) { E[k] = ed[k]; c++; }
-          LS.set('jk_edit', E);
+          LS.set(ek(), E);
           alert('차시 ' + c + '개의 편집 내용을 불러왔습니다.');
           closeSettings(); render();
         } catch (e) { alert('이 파일은 불러올 수 없습니다.'); }
@@ -676,12 +778,13 @@
     clear(pr);
     pr.style.fontSize = S.pfs + 'pt';
     list.forEach(function (i) {
-      var d = lesson(i), page = h('section', { class: 'ppage' }), no = 0;
+      var d = lesson(i), page = h('section', { class: 'ppage' }), no = 0, arts = pickArt(i, d);
       page.appendChild(h('p', { class: 'name', text: ans ? '선생님용 정답지' : '이름: ________________' }));
-      page.appendChild(h('h1', { text: (i + 1) + '차시. ' + d.t }));
+      page.appendChild(h('h1', { text: '[' + S.level + '수준] ' + (i + 1) + '차시. ' + d.t }));
       if (d.g) page.appendChild(h('p', { class: 'pg', text: '🎯 ' + d.g }));
       d.parts.forEach(function (pt, pk) {
         if (d.parts.length > 1) page.appendChild(h('h2', { text: '활동 ' + (pk + 1) }));
+        if (S.pic && arts[pk].length) page.appendChild(figure(arts[pk]));
         page.appendChild(h('div', { class: 'pp', text: pt.p }));
         pt.q.forEach(function (q) {
           var box = h('div', { class: 'pq' }), key = '', k = no++;
@@ -836,6 +939,7 @@
   window.addEventListener('resize', updatePad);
   if (window.ResizeObserver) new ResizeObserver(updatePad).observe(stage);
 
+  loadLevel();
   apply();
   if (!BASE.length) stage.appendChild(h('p', { text: '학습 내용을 불러오지 못했습니다. js 폴더의 data 파일을 확인하세요.' }));
   else render();
