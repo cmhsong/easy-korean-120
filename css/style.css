@@ -75,10 +75,15 @@ body.dark .unit{border-color:var(--pri)}
 .lbtn.done{background:var(--okbg)}
 
 /* 차시 */
-.dots{display:flex;gap:8px;margin:6px 0 16px}
+.dots{display:flex;gap:5px;margin:6px 0 16px}
 .dot{flex:1;height:14px;border-radius:8px;background:var(--line)}
 .dot.did{background:var(--ok)}
 .dot.cur{background:var(--pri)}
+.dot.rd{flex:1.6}
+.part{display:inline-block;background:var(--pri);color:var(--pri-ink);font-weight:700;font-size:.8em;padding:4px 16px;border-radius:999px;margin-bottom:12px}
+/* 터치: 손가락 아래에 있는 버튼 */
+.btn.hot,.tb.hot{background:var(--sel);outline:6px solid var(--pri);outline-offset:2px}
+body.t-lift button{touch-action:none}
 .goal{background:var(--chip);border-left:10px solid var(--pri);border-radius:12px;padding:12px 16px;margin:0 0 16px;font-weight:700}
 .passage{background:var(--card);border:3px solid var(--line);border-radius:18px;padding:20px 22px;margin:0 0 16px;
   font-size:1.15em;line-height:1.95;white-space:pre-line}
@@ -130,6 +135,9 @@ body.dark .unit{border-color:var(--pri)}
 .in{width:100%;font:inherit;font-size:.9em;color:var(--ink);background:var(--card);
   border:3px solid var(--line);border-radius:12px;padding:10px 12px}
 textarea.in{min-height:7em;line-height:1.6;resize:vertical}
+.ped{border-top:5px solid var(--pri);margin-top:26px;padding-top:14px}
+.ped>.head{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.ped>.head h2{flex:1}
 .qed{border:3px solid var(--line);border-radius:18px;padding:16px;margin:0 0 18px;background:var(--card)}
 .qed .head{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
 .qed .head b{flex:1}
@@ -175,6 +183,8 @@ textarea.in{min-height:7em;line-height:1.6;resize:vertical}
   #print .ppage:last-child{break-after:auto}
   #print h1{font-size:1.3em;line-height:1.35;border-bottom:.12em solid #000;padding-bottom:.2em;margin:.2em 0 .5em}
   #print .pg{margin:0 0 .5em;font-weight:700}
+  #print h2{font-size:1.05em;margin:1.2em 0 .2em;break-after:avoid}
+  #print h2::before{content:"■ "}
   #print .pp{border:.1em solid #000;border-radius:.5em;padding:.6em .8em;white-space:pre-line;margin:.6em 0;font-size:1.05em;line-height:1.9}
   #print .pq{margin:1em 0;break-inside:avoid}
   #print .pq b{display:block;white-space:pre-wrap}
