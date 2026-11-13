@@ -48,17 +48,43 @@
     get: function (k, d) { try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
     set: function (k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { } }
   };
-  var S = { fs: 1, zoom: 1, dwell: 0, press: false, guard: true, cursor: false, btn: 1, dark: false, auto: false, snd: true, pfs: 18, touch: 'tap', level: 1, pic: true };
+  var S = { fs: 1, zoom: 1, dwell: 0, press: false, guard: true, cursor: false, btn: 1, dark: false, auto: false, snd: true, pfs: 18, touch: 'tap', level: 1, pic: true, write: true };
   var saved = LS.get('jk_set', {});
   for (var k0 in saved) if (k0 in S) S[k0] = saved[k0];
   var P = {};   // 학습 기록 {차시번호: {s:별, t:문제 수}} — 수준마다 따로 저장
   var E = {};   // 편집한 차시 {차시번호: 차시 내용} — 수준마다 따로 저장
   function pk() { return 'jk_prog' + (S.level > 1 ? S.level : ''); }
   function ek() { return 'jk_edit' + (S.level > 1 ? S.level : ''); }
+  function ak() { return 'jk_add' + (S.level > 1 ? S.level : ''); }
+  var A = [], BASELEN = 0;   // 선생님이 추가한 차시(수준마다 따로). 기본 차시 뒤에 번호가 이어진다
+  function rebuild() { BASE = LV[S.level - 1].L.concat(A); }
+  function isAdded(i) { return i >= BASELEN; }
+  function unitCount() { return Math.ceil(BASE.length / PER); }
+  function unitInfo(u) {
+    if (UNITS[u]) return UNITS[u];
+    if (u < unitCount()) return { n: '선생님이 만든 차시' + (u > UNITS.length ? ' ' + (u - UNITS.length + 1) : ''), e: '📒' };
+    return null;
+  }
+  function addLesson(d) {
+    A.push(d); LS.set(ak(), A); rebuild();
+    return BASE.length;   // 새 차시 번호
+  }
+  function removeAdded(i) {
+    A.splice(i - BASELEN, 1); LS.set(ak(), A);
+    var np = {}, k;
+    for (k in P) { k = +k; if (k < i) np[k] = P[k]; else if (k > i) np[k - 1] = P[k]; }
+    P = np; LS.set(pk(), P);
+    rebuild();
+  }
+  function blankLesson() {
+    return { t: '새 차시', g: '학습 목표를 쓰세요.', parts: [{ p: '읽기 글을 쓰세요.', q: [['c', '질문을 쓰세요', ['정답', '오답 1', '오답 2']]] }] };
+  }
   function hasLevel(n) { return !!(LV[n - 1] && LV[n - 1].L && LV[n - 1].L.length); }
   function loadLevel() {
     if (!hasLevel(S.level)) S.level = 1;
-    BASE = LV[S.level - 1].L; MORE = LV[S.level - 1].M || {};
+    BASELEN = LV[S.level - 1].L.length; MORE = LV[S.level - 1].M || {};
+    A = LS.get(ak(), []); if (!Array.isArray(A)) A = [];
+    rebuild();
     UNITS = S.level === 1 ? UNITS_L1 : UNITS_L23;
     P = LS.get(pk(), {}); E = LS.get(ek(), {});
   }
@@ -71,14 +97,18 @@
   var modal = document.getElementById('modal');
   var ring = document.getElementById('ring');
   var pad = document.getElementById('pad');
-  var view = 'home', L = null, curSpeak = '';
+  var view = 'home', L = null, curSpeak = '', curUnit = 0, editIdx = -1, editSave = null;
 
   /* 예전 형식 {t,g,p,q} 을 {t,g,parts:[{p,q}…]} 로 맞춘다 */
   function norm(d) { return d.parts ? d : { t: d.t, g: d.g, parts: [{ p: d.p, q: d.q }] }; }
   function lesson(i) {
+    if (isAdded(i)) return norm(BASE[i]);
     if (E[i]) return norm(E[i]);
     var d = norm(BASE[i]);
-    return { t: d.t, g: d.g, parts: d.parts.concat(MORE[i + 1] || []) };
+    var W = S.level === 1 && window.WORDS1 ? window.WORDS1[i + 1] : null;
+    return { t: d.t, g: d.g, parts: d.parts.concat(MORE[i + 1] || []).map(function (pt, k) {
+      return W && W[k] ? { p: pt.p, q: pt.q, w: W[k] } : pt;
+    }) };
   }
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
   function $(id) { return document.getElementById(id); }
@@ -117,6 +147,14 @@
     var a = { class: 'btn ' + (cls || ''), type: 'button', onclick: fn };
     if (attrs) for (var k in attrs) a[k] = attrs[k];
     return h('button', a, label);
+  }
+  var toastT;
+  function toast(msg) {
+    var t = $('toast');
+    if (!t) return;
+    t.textContent = msg; t.hidden = false;
+    clearTimeout(toastT);
+    toastT = setTimeout(function () { t.hidden = true; }, 3000);
   }
   function go(hash) { if (location.hash === '#' + hash) render(); else location.hash = hash; }
 
@@ -171,8 +209,8 @@
   function render() {
     hush(); cancelDwell();
     var p = location.hash.replace('#', '').split('/'), n = parseInt(p[1], 10);
-    clear(stage); L = null; curSpeak = '';
-    if (p[0] === 'u' && UNITS[n]) viewUnit(n);
+    clear(stage); L = null; curSpeak = ''; editIdx = -1; editSave = null;
+    if (p[0] === 'u' && unitInfo(n)) viewUnit(n);
     else if (p[0] === 'l' && BASE[n - 1]) { newLesson(n - 1); viewLesson(); }
     else if (p[0] === 'e' && BASE[n - 1]) viewEdit(n - 1);
     else viewHome();
@@ -204,35 +242,43 @@
         function () { go('l/' + (next + 1)); }));
     }
     var grid = h('div', { class: 'grid' });
-    UNITS.forEach(function (u, i) {
+    for (var ui = 0; ui < unitCount(); ui++) (function (u, i) {
       if (!BASE[i * PER]) return;
       grid.appendChild(btn('unit c' + (i % 6), [
         h('span', { class: 'emo', text: u.e }),
-        h('span', { class: 'no', text: (i + 1) + '단원 · ' + (i * PER + 1) + '~' + (i * PER + PER) + '차시' }),
+        h('span', { class: 'no', text: (i + 1) + '단원 · ' + (i * PER + 1) + '~' + Math.min(i * PER + PER, BASE.length) + '차시' }),
         h('span', { class: 'nm', text: u.n }),
-        h('span', { class: 'pg', text: '끝낸 차시 ' + doneCount(i) + ' / ' + PER })
+        h('span', { class: 'pg', text: '끝낸 차시 ' + doneCount(i) + ' / ' + (Math.min(i * PER + PER, BASE.length) - i * PER) })
       ], function () { go('u/' + i); }));
-    });
+    })(unitInfo(ui), ui);
     stage.appendChild(grid);
+    stage.appendChild(h('div', { class: 'teacher' },
+      h('b', { text: '👩‍🏫 선생님: ' + S.level + '수준에서 편집한 차시 ' + Object.keys(E).length + '개 · 새로 만든 차시 ' + A.length + '개' }),
+      h('div', { class: 'row' },
+        btn('sm pri', '➕ 새 차시 만들기', function () { go('e/' + addLesson(blankLesson())); }),
+        btn('sm', '📁 편집 내용 파일로 저장', exportEdits, { disabled: !Object.keys(E).length && !A.length }),
+        btn('sm', '📥 편집 내용 불러오기', importEdits),
+        btn('sm', '🖨 학습지 출력', function () { openPrint(next < total ? next : 0, false); }))));
     curSpeak = '국어 학습지. ' + S.level + '수준. 공부할 단원을 눌러요.';
   }
 
   function viewUnit(u) {
-    view = 'unit';
+    view = 'unit'; curUnit = u;
     stage.appendChild(h('div', { class: 'crumb' }, btn('sm', '◀ 단원 목록', function () { go(''); }),
       h('span', { class: 'where' }), btn('sm', '🖨 단원 인쇄', function () { openPrint(u * PER, true); })));
-    stage.appendChild(h('h1', { text: UNITS[u].e + ' ' + (u + 1) + '단원. ' + UNITS[u].n }));
+    stage.appendChild(h('h1', { text: unitInfo(u).e + ' ' + (u + 1) + '단원. ' + unitInfo(u).n }));
     var list = h('div', { class: 'lessons' });
     for (var i = u * PER; i < u * PER + PER && BASE[i]; i++) (function (i) {
       var p = P[i];
       list.appendChild(btn('lbtn' + (p ? ' done' : ''), [
         h('span', { class: 'n', text: (i + 1) + '차시' }),
-        h('span', { class: 't', text: lesson(i).t + (E[i] ? ' ✏️' : '') }),
+        h('span', { class: 't', text: lesson(i).t + (isAdded(i) ? ' 📒' : E[i] ? ' ✏️' : '') }),
         h('span', { class: 'st', text: p ? '✅ ⭐' + p.s + '/' + p.t : '' })
       ], function () { go('l/' + (i + 1)); }));
     })(i);
     stage.appendChild(list);
-    curSpeak = (u + 1) + '단원. ' + UNITS[u].n + '. 공부할 차시를 눌러요.';
+    if (u >= UNITS.length) stage.appendChild(h('div', { class: 'row' }, btn('', '➕ 새 차시 만들기', function () { go('e/' + addLesson(blankLesson())); })));
+    curSpeak = (u + 1) + '단원. ' + unitInfo(u).n + '. 공부할 차시를 눌러요.';
   }
 
   /* ── 도트 그림: 글에 나온 낱말에 맞는 그림을 골라 보여 준다 ── */
@@ -289,6 +335,7 @@
     var d = lesson(i), seq = [], qn = 0;
     d.parts.forEach(function (pt, k) {
       seq.push({ k: k, read: true });
+      if (pt.w && String(pt.w).trim() && S.write) seq.push({ k: k, write: true });
       pt.q.forEach(function (q) { seq.push({ k: k, q: q, no: ++qn }); });
     });
     L = { i: i, d: d, step: 0, stars: 0, seq: seq, qTotal: qn, art: pickArt(i, d) };
@@ -328,13 +375,118 @@
         stage.appendChild(h('div', { class: 'row' },
           btn('', '🔊 글 듣기', function () { speak(pt.p); }),
           cur.k === 0 ? btn('', '🖨 인쇄', function () { openPrint(L.i, false); }) : null,
-          btn('pri', pt.q.length ? '문제 풀기 ▶' : (L.step === seq.length - 1 ? '끝내기 ▶' : '다음 활동 ▶'), advance)));
+          btn('pri', nextLabel(), advance)));
+      } else if (cur.write) {
+        viewWrite(pt);
       } else {
         viewQuestion(pt, cur);
       }
     }
     if (S.auto) speak(curSpeak);
     updatePad();
+  }
+
+  function nextLabel() {
+    var nx = L.seq[L.step + 1];
+    return !nx ? '끝내기 ▶' : nx.read ? '다음 활동 ▶' : nx.write ? '낱말 쓰기 ▶' : '문제 풀기 ▶';
+  }
+
+  /* 핵심 낱말 쓰기: ① 글자 조각을 눌러 낱말 만들기 → ② 터치패드·손가락으로 따라 쓰기 */
+  function viewWrite(pt) {
+    var word = String(pt.w).trim(), syl = Array.from(word.replace(/\s+/g, '')), pos = 0;
+    curSpeak = '핵심 낱말 쓰기. ' + word + '. 글자를 차례대로 눌러 낱말을 만들어요.';
+    stage.appendChild(h('div', { class: 'qno', text: '✏️ 핵심 낱말 쓰기' }));
+    stage.appendChild(h('div', { class: 'wword', text: word }));
+    stage.appendChild(h('p', { class: 'qtext', text: '① 글자를 차례대로 눌러 낱말을 만들어요.' }));
+    var slots = h('div', { class: 'wslots' });
+    var slotEls = syl.map(function () { var s = h('span', { class: 'wslot' }); slots.appendChild(s); return s; });
+    stage.appendChild(slots);
+    /* 헷갈리게 하는 글자 2개는 읽기 글에서 가져온다 */
+    var extra = [];
+    shuffle(Array.from(pt.p.replace(/[^가-힣]/g, ''))).some(function (c) {
+      if (syl.indexOf(c) < 0 && extra.indexOf(c) < 0) extra.push(c);
+      return extra.length >= 2;
+    });
+    var tiles = h('div', { class: 'chips wtiles' }), all = [];
+    var fb = h('div', { class: 'fb', 'aria-live': 'polite' });
+    var pad = h('div', { class: 'wpad', hidden: true });
+    var next = btn('pri', nextLabel(), advance, { hidden: true });
+    mix(syl.concat(extra)).forEach(function (c) {
+      var b = btn('chip wtile', c, function () {
+        if (c !== syl[pos]) {
+          fb.className = 'fb bad'; fb.textContent = '🤔 위의 낱말을 잘 보고 ' + (pos + 1) + '번째 글자를 골라요.'; beep(false);
+          return;
+        }
+        slotEls[pos].textContent = c; slotEls[pos].classList.add('ok'); b.disabled = true; pos++;
+        fb.className = 'fb'; fb.textContent = '';
+        if (pos === syl.length) {
+          all.forEach(function (x) { x.disabled = true; });
+          fb.className = 'fb ok'; fb.textContent = '⭕ “' + word + '” 낱말을 만들었어요!';
+          beep(true); pad.hidden = false; next.hidden = false; buildPad(); updatePad();
+        }
+      });
+      all.push(b); tiles.appendChild(b);
+    });
+    stage.appendChild(tiles);
+    stage.appendChild(fb);
+    stage.appendChild(pad);
+    stage.appendChild(h('div', { class: 'row end' }, next));
+
+    function buildPad() {
+      var NS = 'http://www.w3.org/2000/svg', cols = Math.max(2, syl.length), W = 300 * cols, H = 340;
+      var svg = document.createElementNS(NS, 'svg');
+      svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H); svg.setAttribute('aria-hidden', 'true');
+      for (var k = 1; k < cols; k++) {
+        var ln = document.createElementNS(NS, 'line');
+        ln.setAttribute('x1', 300 * k); ln.setAttribute('x2', 300 * k); ln.setAttribute('y1', 0); ln.setAttribute('y2', H);
+        ln.setAttribute('stroke', '#C9D3E0'); ln.setAttribute('stroke-width', 3); ln.setAttribute('stroke-dasharray', '10 10');
+        svg.appendChild(ln);
+      }
+      syl.forEach(function (c, k) {
+        var tx = document.createElementNS(NS, 'text');
+        tx.setAttribute('x', (W - 300 * syl.length) / 2 + 300 * k + 150); tx.setAttribute('y', 262); tx.setAttribute('text-anchor', 'middle');
+        tx.setAttribute('font-size', 250); tx.setAttribute('font-weight', 700); tx.setAttribute('fill', '#D5DCE6');
+        tx.textContent = c;
+        svg.appendChild(tx);
+      });
+      var cv = h('canvas', { 'aria-label': word + ' 따라 쓰는 곳' });
+      cv.width = W; cv.height = H;
+      var wrap = h('div', { class: 'wcanvas' }, svg, cv);
+      var state = h('p', { class: 'wstate', text: '' });
+      var ctx = cv.getContext('2d'), down = false, sticky = false, moved = 0, lx = 0, ly = 0, sx = 0, sy = 0;
+      ctx.lineWidth = 16; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#1D4ED8'; ctx.fillStyle = '#1D4ED8';
+      function at(e) { var r = cv.getBoundingClientRect(); return [(e.clientX - r.left) / r.width * W, (e.clientY - r.top) / r.height * H]; }
+      function setPen(on) {
+        sticky = on; wrap.classList.toggle('pen', on);
+        state.textContent = on ? '✍️ 쓰는 중이에요. 멈추려면 한 번 눌러요.' : '';
+      }
+      cv.addEventListener('pointerdown', function (e) {
+        e.preventDefault();
+        var q = at(e); lx = q[0]; ly = q[1]; sx = e.clientX; sy = e.clientY; moved = 0; down = true;
+        try { cv.setPointerCapture(e.pointerId); } catch (x) { }
+        ctx.beginPath(); ctx.arc(lx, ly, 8, 0, 6.3); ctx.fill();
+      });
+      cv.addEventListener('pointermove', function (e) {
+        if (!down && !sticky) return;
+        if (down) moved = Math.max(moved, Math.abs(e.clientX - sx) + Math.abs(e.clientY - sy));
+        var q = at(e);
+        ctx.beginPath(); ctx.moveTo(lx, ly); ctx.lineTo(q[0], q[1]); ctx.stroke();
+        lx = q[0]; ly = q[1];
+      });
+      cv.addEventListener('pointerup', function (e) {
+        if (!down) return;
+        down = false;
+        /* 마우스·터치패드: 움직이지 않고 눌렀다 떼면 펜을 내려놓거나(쓰기 시작) 든다(멈춤) */
+        if (e.pointerType === 'mouse' && moved < 6) setPen(!sticky);
+      });
+      cv.addEventListener('pointercancel', function () { down = false; });
+      cv.addEventListener('pointerenter', function (e) { if (sticky && !down) { var q = at(e); lx = q[0]; ly = q[1]; } });
+      pad.appendChild(h('p', { class: 'qtext', text: '② 터치패드나 손가락으로 낱말을 따라 써요.' }));
+      pad.appendChild(h('p', { class: 'note', text: '터치패드: 한 번 눌렀다 떼면 쓰기 시작하고, 다시 누르면 멈춰요. 누른 채 움직여도 써져요. 화면을 손가락으로 바로 써도 돼요.' }));
+      pad.appendChild(wrap);
+      pad.appendChild(state);
+      pad.appendChild(h('div', { class: 'row' }, btn('', '🧽 지우고 다시 쓰기', function () { ctx.clearRect(0, 0, W, H); setPen(false); })));
+    }
   }
 
   function viewQuestion(pt, cur) {
@@ -465,6 +617,7 @@
     if (BASE[n]) row.appendChild(btn('pri', '다음 차시 ▶', function () { go('l/' + (n + 1)); }));
     row.appendChild(btn('', '🔁 다시 하기', function () { go('l/' + n); }));
     row.appendChild(btn('', '📋 차시 목록', function () { go('u/' + u); }));
+    row.appendChild(btn('', '🖨 이 차시 출력', function () { openPrint(n - 1, false); }));
     stage.appendChild(h('div', { class: 'finish' },
       h('div', { class: 'big', text: '🎉' }),
       h('h2', { text: n + '차시를 끝냈어요!' }),
@@ -502,7 +655,12 @@
 
   function viewEdit(i) {
     view = 'edit';
-    var w = clone(lesson(i)), n = i + 1;
+    var w = clone(lesson(i)), n = i + 1, orig = JSON.stringify(w);
+    editIdx = i;
+    function leave() {
+      if (JSON.stringify(w) !== orig && !confirm('저장하지 않은 내용이 있습니다. 저장하지 않고 나갈까요?')) return;
+      go('l/' + n);
+    }
     draw();
 
     function draw() {
@@ -510,8 +668,8 @@
       clear(stage);
       var box = h('div', { class: 'ed' });
       box.appendChild(h('div', { class: 'crumb' },
-        btn('sm', '◀ 취소', function () { go('l/' + n); }),
-        h('span', { class: 'where', text: n + '차시 편집' + (E[i] ? ' (편집된 차시)' : '') })));
+        btn('sm', '◀ 나가기', leave),
+        h('span', { class: 'where', text: n + '차시 편집' + (isAdded(i) ? ' (새로 만든 차시)' : E[i] ? ' (편집된 차시)' : '') })));
       box.appendChild(h('h1', { text: '✏️ ' + n + '차시 편집' }));
       box.appendChild(h('p', { class: 'note', text: '고친 내용은 이 컴퓨터(브라우저)에 저장됩니다. 다른 컴퓨터로 옮기려면 ⚙️ 설정 → 편집 내용 내보내기를 쓰세요.' }));
       box.appendChild(field('차시 제목', w.t, function (v) { w.t = v; }));
@@ -533,6 +691,7 @@
         var prev = pt.img === 'none' ? [] : (pt.img && PX.art[pt.img] ? [pt.img] : pickArt(i, w)[pk]);
         sec.appendChild(h('div', { class: 'picrow' }, h('label', { class: 'fld' }, h('span', { text: '도트 그림' }), sel), figure(prev)));
         sec.appendChild(field('읽기 글 (줄을 바꾸면 화면에서도 줄이 바뀝니다)', pt.p, function (v) { pt.p = v; }, true));
+        sec.appendChild(field('핵심 낱말 — 글자 맞추기와 따라 쓰기에 나옵니다 (비워 두면 낱말 쓰기 화면을 건너뜁니다)', pt.w || '', function (v) { if (v.trim()) pt.w = v.trim(); else delete pt.w; }));
         pt.q.forEach(function (q, k) { sec.appendChild(qEditor(pt, q, k)); });
         var addRow = h('div', { class: 'seg' });
         TYPES.forEach(function (t) {
@@ -545,7 +704,22 @@
         w.parts.push({ p: '읽기 글을 쓰세요.', q: [TEMPLATE.c()] }); draw(); window.scrollTo(0, document.body.scrollHeight);
       }));
 
-      var row = h('div', { class: 'row' }, btn('pri', '💾 저장', save), btn('', '취소', function () { go('l/' + n); }));
+      var row = h('div', { class: 'row edbar' },
+        btn('pri', '💾 저장', function () { if (save()) toast('💾 ' + n + '차시를 저장했습니다.'); }),
+        btn('', '📁 저장하고 파일로 받기', function () { if (save()) { exportEdits(); toast('💾 저장하고 파일로 내려받았습니다.'); } }),
+        btn('', '🖨 저장하고 출력', function () { if (save()) { toast('💾 ' + n + '차시를 저장했습니다.'); openPrint(i, false); } }),
+        btn('', '📄 복사해서 새 차시 만들기', function () {
+          if (!save()) return;
+          var copy = clone(w); copy.t = w.t + ' (복사)';
+          var no = addLesson(copy);
+          toast('📒 ' + no + '차시로 복사했습니다. 지금 ' + no + '차시를 편집합니다.');
+          go('e/' + no);
+        }),
+        btn('', '나가기', leave));
+      if (isAdded(i)) row.appendChild(btn('', '🗑 이 차시 삭제', function () {
+        if (!confirm(n + '차시 “' + w.t + '”을(를) 지울까요? 되돌릴 수 없습니다.')) return;
+        removeAdded(i); toast('🗑 차시를 지웠습니다.'); go('');
+      }));
       if (E[i]) row.appendChild(btn('', '↩ 처음 내용으로 되돌리기', function () {
         if (!confirm(n + '차시를 처음 내용으로 되돌릴까요?')) return;
         delete E[i]; LS.set(ek(), E); go('l/' + n);
@@ -610,6 +784,7 @@
       return box;
     }
 
+    editSave = function () { return save(); };
     function save() {
       var err = '';
       if (!String(w.t || '').trim()) err = '차시 제목을 쓰세요.';
@@ -633,9 +808,11 @@
           }
         });
       });
-      if (err) return alert(err);
-      E[i] = w; LS.set(ek(), E);
-      go('l/' + n);
+      if (err) { alert(err); return false; }
+      if (isAdded(i)) { A[i - BASELEN] = clone(w); LS.set(ak(), A); rebuild(); }
+      else { E[i] = clone(w); LS.set(ek(), E); }
+      orig = JSON.stringify(w);
+      return true;
     }
   }
 
@@ -664,6 +841,7 @@
       [['tap', '바로 누르기'], ['lift', '손을 뗀 곳 선택'], [0.5, '0.5초 꾹 누르기'], [1, '1초 꾹 누르기']]);
     seg('버튼 크기', '', 'btn', [[1, '보통'], [1.25, '크게'], [1.5, '아주 크게']]);
     seg('화면 색', '', 'dark', [[false, '밝게'], [true, '어둡게 (또렷한 색)']]);
+    seg('핵심 낱말 쓰기', '글을 읽은 뒤 핵심 낱말을 글자 조각으로 맞추고 터치패드로 따라 씁니다. (1수준과, 편집에서 핵심 낱말을 넣은 차시)', 'write', onoff);
     seg('도트 그림 보이기', '읽기 글 위에 글과 어울리는 도트 그림을 보여 줍니다.', 'pic', onoff);
     seg('자동으로 읽어 주기', '글과 문제가 나올 때 소리로 읽어 줍니다.', 'auto', onoff);
     seg('효과음', '', 'snd', onoff);
@@ -677,7 +855,7 @@
     t.appendChild(btn('', '📤 편집 내용 내보내기', exportEdits));
     t.appendChild(btn('', '📥 편집 내용 불러오기', importEdits));
     t.appendChild(btn('', '↩ 편집 모두 되돌리기', function () {
-      if (!confirm('편집한 차시 ' + Object.keys(E).length + '개를 모두 처음 내용으로 되돌릴까요?')) return;
+      if (!confirm('편집한 차시 ' + Object.keys(E).length + '개를 모두 처음 내용으로 되돌릴까요? (새로 만든 차시는 그대로 둡니다)')) return;
       E = {}; LS.set(ek(), E); closeSettings(); render();
     }));
     t.appendChild(btn('', '🧹 학습 기록 지우기', function () {
@@ -692,7 +870,7 @@
   function closeSettings() { modal.hidden = true; clear(modal); }
 
   function exportEdits() {
-    var blob = new Blob([JSON.stringify({ app: 'easy-korean-120', level: S.level, edits: E }, null, 1)], { type: 'application/json' });
+    var blob = new Blob([JSON.stringify({ app: 'easy-korean-120', level: S.level, edits: E, added: A }, null, 1)], { type: 'application/json' });
     var a = h('a', { href: URL.createObjectURL(blob), download: '국어학습지_' + S.level + '수준_편집내용.json' });
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(function () { URL.revokeObjectURL(a.href); }, 3000);
@@ -720,9 +898,14 @@
         try {
           var data = JSON.parse(r.result), ed = data.edits, c = 0;
           if ((data.level || 1) !== S.level) return alert('이 파일은 ' + (data.level || 1) + '수준의 편집 내용입니다. 처음 화면에서 ' + (data.level || 1) + '수준을 고른 뒤 불러오세요.');
-          for (var k in ed) if (BASE[k] && validLesson(ed[k])) { E[k] = ed[k]; c++; }
+          for (var k in ed) if (+k < BASELEN && validLesson(ed[k])) { E[k] = ed[k]; c++; }
           LS.set(ek(), E);
-          alert('차시 ' + c + '개의 편집 내용을 불러왔습니다.');
+          var have = A.map(function (x) { return JSON.stringify(x); }), ac = 0;
+          (Array.isArray(data.added) ? data.added : []).forEach(function (x) {
+            if (validLesson(x) && have.indexOf(JSON.stringify(x)) < 0) { A.push(x); ac++; }
+          });
+          LS.set(ak(), A); rebuild();
+          alert('편집한 차시 ' + c + '개, 새로 만든 차시 ' + ac + '개를 불러왔습니다.');
           closeSettings(); render();
         } catch (e) { alert('이 파일은 불러올 수 없습니다.'); }
       };
@@ -744,7 +927,7 @@
     var u = Math.floor(i / PER);
     clear(modal);
     var sheet = h('div', { class: 'sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': '인쇄' });
-    sheet.appendChild(h('div', { class: 'top' }, h('h2', { text: '🖨 학습지 인쇄' }), btn('pri', '닫기 ✕', closeSettings)));
+    sheet.appendChild(h('div', { class: 'top' }, h('h2', { text: '🖨 학습지 출력' }), btn('pri', '닫기 ✕', closeSettings)));
     function seg(title, desc, cur, opts, set) {
       var row = h('div', { class: 'seg' });
       opts.forEach(function (o) {
@@ -752,6 +935,12 @@
       });
       sheet.appendChild(h('div', { class: 'set' }, h('b', { text: title }), desc ? h('small', { text: desc }) : null, row));
     }
+    var pick = h('div', { class: 'seg' });
+    [[-10, '◀◀ 10'], [-1, '◀ 앞 차시'], [1, '다음 차시 ▶'], [10, '10 ▶▶']].forEach(function (o) {
+      var to = i + o[0];
+      pick.appendChild(btn('', o[1], function () { drawPrint(to); }, { disabled: !BASE[to] }));
+    });
+    sheet.appendChild(h('div', { class: 'set' }, h('b', { text: '출력할 차시: ' + S.level + '수준 ' + (i + 1) + '차시 · ' + lesson(i).t }), pick));
     seg('인쇄할 범위', '', pOpt.unit,
       [[false, (i + 1) + '차시만'], [true, (u + 1) + '단원 전체 (' + (u * PER + 1) + '~' + (u * PER + PER) + '차시)']],
       function (v) { pOpt.unit = v; });
@@ -761,7 +950,7 @@
     seg('정답 표시', '선생님용 정답지를 뽑을 때 켭니다.', pOpt.ans, [[false, '끄기'], [true, '켜기']], function (v) { pOpt.ans = v; });
     sheet.appendChild(h('div', { class: 'set' }, h('b', { text: '글자 크기 미리 보기' }),
       h('div', { class: 'pprev', style: 'font-size:' + S.pfs + 'pt', text: '가나다 국어 학습지' })));
-    sheet.appendChild(h('div', { class: 'row' }, btn('pri', '🖨 인쇄하기', function () {
+    sheet.appendChild(h('div', { class: 'row' }, btn('pri', '🖨 출력하기', function () {
       var list = [];
       if (pOpt.unit) { for (var k = u * PER; k < u * PER + PER && BASE[k]; k++) list.push(k); } else list.push(i);
       closeSettings();
@@ -773,43 +962,63 @@
     modal.hidden = false;
   }
 
+  /* 출력용 지면. 문제 하나, 글 상자 하나는 쪽 사이에서 잘리지 않게 묶음(.pq, .pblock)으로 만든다 */
   function buildPrint(list, ans) {
     var pr = $('print');
     clear(pr);
     pr.style.fontSize = S.pfs + 'pt';
+    var STAGE = ['배우기', '익히기', '넓히기'];
     list.forEach(function (i) {
-      var d = lesson(i), page = h('section', { class: 'ppage' }), no = 0, arts = pickArt(i, d);
-      page.appendChild(h('p', { class: 'name', text: ans ? '선생님용 정답지' : '이름: ________________' }));
-      page.appendChild(h('h1', { text: '[' + S.level + '수준] ' + (i + 1) + '차시. ' + d.t }));
-      if (d.g) page.appendChild(h('p', { class: 'pg', text: '🎯 ' + d.g }));
+      var d = lesson(i), page = h('section', { class: 'ppage' }), no = 0, arts = pickArt(i, d), u = Math.floor(i / PER);
+      page.appendChild(h('header', { class: 'ph' },
+        h('div', { class: 'phtop' },
+          h('span', { class: 'plv', text: S.level + '수준' }),
+          h('span', { class: 'punit', text: (u + 1) + '단원 · ' + unitInfo(u).n }),
+          h('span', { class: 'pname', text: ans ? '선생님용 정답지' : '이름 ____________   날짜 ____월 ____일' })),
+        h('h1', {}, h('span', { class: 'pno', text: (i + 1) + '차시' }), h('span', { text: d.t }))));
+      if (d.g) page.appendChild(h('p', { class: 'pg' }, h('b', { text: '학습 목표' }), h('span', { text: d.g })));
       d.parts.forEach(function (pt, pk) {
-        if (d.parts.length > 1) page.appendChild(h('h2', { text: '활동 ' + (pk + 1) }));
-        if (S.pic && arts[pk].length) page.appendChild(figure(arts[pk]));
-        page.appendChild(h('div', { class: 'pp', text: pt.p }));
+        var block = h('div', { class: 'pblock' });
+        if (d.parts.length > 1) block.appendChild(h('h2', {}, h('span', { class: 'pill', text: '활동 ' + (pk + 1) }),
+          d.parts.length === 3 ? h('span', { text: STAGE[pk] }) : null));
+        var body = h('div', { class: 'pbody' });
+        if (S.pic && arts[pk].length) body.appendChild(figure(arts[pk]));
+        body.appendChild(h('div', { class: 'pp', text: pt.p }));
+        block.appendChild(body);
+        page.appendChild(block);
+        if (pt.w && S.write) {
+          var cells = Array.from(String(pt.w).replace(/\s+/g, ''));
+          page.appendChild(h('div', { class: 'pw' }, h('b', { text: '✏️ 핵심 낱말 따라 쓰기' }),
+            h('div', { class: 'pwrow' }, cells.map(function (c) { return h('span', { class: 'pwc tr', text: c }); }),
+              h('span', { class: 'pwgap' }), cells.map(function () { return h('span', { class: 'pwc' }); }))));
+        }
         pt.q.forEach(function (q) {
-          var box = h('div', { class: 'pq' }), key = '', k = no++;
+          var qc = h('div', { class: 'qc' }), key = '', k = no++;
+          var box = h('div', { class: 'pq' }, h('span', { class: 'qn', text: String(k + 1) }), qc);
           if (q[0] === 'c') {
-            box.appendChild(h('b', { text: (k + 1) + '. ' + q[1] }));
+            qc.appendChild(h('b', { text: q[1] }));
+            var pos = h('div', { class: 'pos' });
             shuffle(q[2]).forEach(function (o, j) {
-              box.appendChild(h('div', { class: 'po', text: NUMS[j] + ' ' + o }));
+              pos.appendChild(h('div', { class: 'po', text: NUMS[j] + ' ' + o }));
               if (o === q[2][0]) key = NUMS[j] + ' ' + o;
             });
+            qc.appendChild(pos);
           } else if (q[0] === 'o') {
-            box.appendChild(h('b', { text: (k + 1) + '. ' + q[1] + '   ( ○ , × )' }));
+            qc.appendChild(h('div', { class: 'pox' }, h('b', { text: q[1] }), h('span', { class: 'poxa', text: '( ○ , × )' })));
             key = q[2] ? '○' : '×';
           } else if (q[0] === 's') {
-            box.appendChild(h('b', { text: (k + 1) + '. ' + (q[2] ? q[2].replace('눌러요', '써요') : '낱말을 차례대로 써서 문장을 만들어요.') }));
-            box.appendChild(h('div', {}, mix(q[1]).map(function (x) { return h('span', { class: 'box', text: x }); })));
-            box.appendChild(h('div', { class: 'line' }));
+            qc.appendChild(h('b', { text: q[2] ? q[2].replace('눌러요', '써요') : '낱말을 차례대로 써서 문장을 만들어요.' }));
+            qc.appendChild(h('div', {}, mix(q[1]).map(function (x) { return h('span', { class: 'box', text: x }); })));
+            qc.appendChild(h('div', { class: 'line' }));
             key = q[1].join(' → ');
           } else {
-            box.appendChild(h('b', { text: (k + 1) + '. ' + (q[2] ? q[2].replace('눌러요', '선으로 이어요') : '서로 어울리는 것끼리 선으로 이어요.') }));
+            qc.appendChild(h('b', { text: q[2] ? q[2].replace('눌러요', '선으로 이어요') : '서로 어울리는 것끼리 선으로 이어요.' }));
             var cols = h('div', { class: 'cols' }), rs = mix(q[1].map(function (p) { return p[1]; }));
             q[1].forEach(function (p, j) { cols.appendChild(h('div', { text: p[0] + '  ●' })); cols.appendChild(h('div', { text: '●  ' + rs[j] })); });
-            box.appendChild(cols);
+            qc.appendChild(cols);
             key = q[1].map(function (p) { return p[0] + ' ― ' + p[1]; }).join(' / ');
           }
-          if (ans) box.appendChild(h('div', { class: 'key', text: '정답: ' + key }));
+          if (ans) qc.appendChild(h('div', { class: 'key', text: '정답: ' + key }));
           page.appendChild(box);
         });
       });
@@ -930,6 +1139,14 @@
   $('bZoomUp').onclick = function () { step('zoom', 0.25, 1, 3); };
   $('bZoomDown').onclick = function () { step('zoom', -0.25, 1, 3); };
   $('bSpeak').onclick = function () { speak(curSpeak); };
+  $('bPrint').onclick = function () {
+    if (!modal.hidden) closeSettings();
+    if (view === 'edit' && editIdx >= 0) {
+      if (editSave && editSave()) { toast('💾 저장한 내용으로 출력합니다.'); openPrint(editIdx, false); }
+    } else if (view === 'lesson' && L) openPrint(L.i, false);
+    else if (view === 'unit') openPrint(curUnit * PER, true);
+    else { var nx = 0; while (BASE[nx] && P[nx]) nx++; openPrint(BASE[nx] ? nx : 0, false); }
+  };
   $('bSet').onclick = function () { if (modal.hidden) openSettings(); else closeSettings(); };
   $('bUp').onclick = function () { window.scrollBy({ top: -window.innerHeight * 0.6, behavior: 'smooth' }); };
   $('bDown').onclick = function () { window.scrollBy({ top: window.innerHeight * 0.6, behavior: 'smooth' }); };
