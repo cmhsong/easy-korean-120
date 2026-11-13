@@ -105,6 +105,7 @@ body.t-lift button{touch-action:none}
 .wtiles{justify-content:center}
 .wtile{font-size:1.5em;min-width:2.4em}
 .wpad{margin-top:22px}
+.wcount{display:inline-block;background:var(--chip);border:3px solid var(--pri);border-radius:999px;padding:4px 18px;font-weight:800;margin:0 0 12px;letter-spacing:.03em}
 .wcanvas{position:relative;width:100%;border:5px solid var(--pri);border-radius:18px;background:#fff;overflow:hidden;touch-action:none}
 .wcanvas.pen{border-color:#F5892B;box-shadow:0 0 0 6px #FFD9B0}
 .wcanvas svg{display:block;width:100%;height:auto}

@@ -48,7 +48,7 @@
     get: function (k, d) { try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
     set: function (k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { } }
   };
-  var S = { fs: 1, zoom: 1, dwell: 0, press: false, guard: true, cursor: false, btn: 1, dark: false, auto: false, snd: true, pfs: 18, touch: 'tap', level: 1, pic: true, write: true };
+  var S = { fs: 1, zoom: 1, dwell: 0, press: false, guard: true, cursor: false, btn: 1, dark: false, auto: false, snd: true, pfs: 18, touch: 'tap', level: 1, pic: true, write: true, wn: 1 };
   var saved = LS.get('jk_set', {});
   for (var k0 in saved) if (k0 in S) S[k0] = saved[k0];
   var P = {};   // 학습 기록 {차시번호: {s:별, t:문제 수}} — 수준마다 따로 저장
@@ -422,7 +422,7 @@
         if (pos === syl.length) {
           all.forEach(function (x) { x.disabled = true; });
           fb.className = 'fb ok'; fb.textContent = '⭕ “' + word + '” 낱말을 만들었어요!';
-          beep(true); pad.hidden = false; next.hidden = false; buildPad(); updatePad();
+          beep(true); pad.hidden = false; buildPad(); updatePad();
         }
       });
       all.push(b); tiles.appendChild(b);
@@ -454,6 +454,8 @@
       var wrap = h('div', { class: 'wcanvas' }, svg, cv);
       var state = h('p', { class: 'wstate', text: '' });
       var ctx = cv.getContext('2d'), down = false, sticky = false, moved = 0, lx = 0, ly = 0, sx = 0, sy = 0;
+      var round = 1, total = Math.max(1, S.wn || 1), inked = false, finished = false;
+      var count = h('div', { class: 'wcount', 'aria-live': 'polite' });
       ctx.lineWidth = 16; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#1D4ED8'; ctx.fillStyle = '#1D4ED8';
       function at(e) { var r = cv.getBoundingClientRect(); return [(e.clientX - r.left) / r.width * W, (e.clientY - r.top) / r.height * H]; }
       function setPen(on) {
@@ -465,13 +467,14 @@
         var q = at(e); lx = q[0]; ly = q[1]; sx = e.clientX; sy = e.clientY; moved = 0; down = true;
         try { cv.setPointerCapture(e.pointerId); } catch (x) { }
         ctx.beginPath(); ctx.arc(lx, ly, 8, 0, 6.3); ctx.fill();
+        inked = true;
       });
       cv.addEventListener('pointermove', function (e) {
         if (!down && !sticky) return;
         if (down) moved = Math.max(moved, Math.abs(e.clientX - sx) + Math.abs(e.clientY - sy));
         var q = at(e);
         ctx.beginPath(); ctx.moveTo(lx, ly); ctx.lineTo(q[0], q[1]); ctx.stroke();
-        lx = q[0]; ly = q[1];
+        lx = q[0]; ly = q[1]; inked = true;
       });
       cv.addEventListener('pointerup', function (e) {
         if (!down) return;
@@ -483,9 +486,34 @@
       cv.addEventListener('pointerenter', function (e) { if (sticky && !down) { var q = at(e); lx = q[0]; ly = q[1]; } });
       pad.appendChild(h('p', { class: 'qtext', text: '② 터치패드나 손가락으로 낱말을 따라 써요.' }));
       pad.appendChild(h('p', { class: 'note', text: '터치패드: 한 번 눌렀다 떼면 쓰기 시작하고, 다시 누르면 멈춰요. 누른 채 움직여도 써져요. 화면을 손가락으로 바로 써도 돼요.' }));
+      function wipe() { ctx.clearRect(0, 0, W, H); setPen(false); inked = false; }
+      function show() {
+        var marks = '';
+        for (var k = 1; k <= total; k++) marks += k < round || finished ? '●' : k === round ? '◐' : '○';
+        count.textContent = finished ? '따라 쓰기 끝! ' + total + '번 썼어요.  ' + marks : '따라 쓰기 ' + round + ' / ' + total + '번째  ' + marks;
+        doneBtn.hidden = finished;
+        next.hidden = !finished;
+        updatePad();
+      }
+      var doneBtn = btn('pri', '✅ 다 썼어요', function () {
+        if (!inked) { state.textContent = '먼저 낱말을 따라 써 보세요.'; beep(false); return; }
+        beep(true);
+        if (round < total) { round++; wipe(); state.textContent = '잘했어요! 한 번 더 써 봐요.'; }
+        else { finished = true; setPen(false); state.textContent = ''; }
+        show();
+        if (finished) { try { next.focus({ preventScroll: true }); } catch (x) { } }
+      });
+      var moreBtn = btn('', '➕ 한 번 더 쓰기', function () {
+        total++;
+        if (finished) { finished = false; round = total; wipe(); }
+        state.textContent = '따라 쓰는 횟수를 ' + total + '번으로 늘렸어요.';
+        show();
+      });
+      pad.appendChild(count);
       pad.appendChild(wrap);
       pad.appendChild(state);
-      pad.appendChild(h('div', { class: 'row' }, btn('', '🧽 지우고 다시 쓰기', function () { ctx.clearRect(0, 0, W, H); setPen(false); })));
+      pad.appendChild(h('div', { class: 'row' }, btn('', '🧽 지우고 다시 쓰기', wipe), moreBtn, doneBtn));
+      show();
     }
   }
 
@@ -842,6 +870,8 @@
     seg('버튼 크기', '', 'btn', [[1, '보통'], [1.25, '크게'], [1.5, '아주 크게']]);
     seg('화면 색', '', 'dark', [[false, '밝게'], [true, '어둡게 (또렷한 색)']]);
     seg('핵심 낱말 쓰기', '글을 읽은 뒤 핵심 낱말을 글자 조각으로 맞추고 터치패드로 따라 씁니다. (1수준과, 편집에서 핵심 낱말을 넣은 차시)', 'write', onoff);
+    seg('낱말을 따라 쓰는 횟수', '핵심 낱말을 몇 번 덧쓸지 정합니다. 쓰기 화면의 “한 번 더 쓰기”로 그 자리에서 늘릴 수도 있습니다.', 'wn',
+      [[1, '1번'], [2, '2번'], [3, '3번'], [5, '5번']]);
     seg('도트 그림 보이기', '읽기 글 위에 글과 어울리는 도트 그림을 보여 줍니다.', 'pic', onoff);
     seg('자동으로 읽어 주기', '글과 문제가 나올 때 소리로 읽어 줍니다.', 'auto', onoff);
     seg('효과음', '', 'snd', onoff);
@@ -989,8 +1019,12 @@
         if (pt.w && S.write) {
           var cells = Array.from(String(pt.w).replace(/\s+/g, ''));
           page.appendChild(h('div', { class: 'pw' }, h('b', { text: '✏️ 핵심 낱말 따라 쓰기' }),
-            h('div', { class: 'pwrow' }, cells.map(function (c) { return h('span', { class: 'pwc tr', text: c }); }),
-              h('span', { class: 'pwgap' }), cells.map(function () { return h('span', { class: 'pwc' }); }))));
+            h('div', { class: 'pwrow' }, (function () {
+              var out = [], times = Math.max(1, S.wn || 1), r;
+              for (r = 0; r < times; r++) { out.push(cells.map(function (c) { return h('span', { class: 'pwc tr', text: c }); })); out.push(h('span', { class: 'pwgap' })); }
+              out.push(cells.map(function () { return h('span', { class: 'pwc' }); }));
+              return out;
+            })())));
         }
         pt.q.forEach(function (q) {
           var qc = h('div', { class: 'qc' }), key = '', k = no++;
